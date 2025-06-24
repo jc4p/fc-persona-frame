@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
-import { uploadToR2 } from '@/lib/r2';
+import { uploadToR2, isCloudflareR2Configured } from '@/lib/r2';
 
 export async function POST(request) {
   try {
+    if (!isCloudflareR2Configured()) {
+      return NextResponse.json({ 
+        error: 'Cloudflare R2 is not configured. Image sharing functionality is disabled.' 
+      }, { status: 503 });
+    }
+
     const body = await request.json();
     const { house, displayName, pfpUrl, fid } = body;
 
