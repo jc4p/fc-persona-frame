@@ -15,33 +15,26 @@ A Farcaster mini-app template that analyzes user profiles and casts to determine
 - Cursor or Visual Studio Code with Copilot enabled
 - Ability to open up your Terminal (in Applications/Utilities folder) and run `npm --version` and have it spit out a number
 
-### 2. API Keys Setup
+### 2. Clone the Repository
 
-#### Neynar API Key
-1. Go to [neynar.com](https://neynar.com)
-2. Sign up and navigate to the dashboard
-3. Create a new app
-4. Copy your API key
+Open the Terminal app and run:
 
-#### Google Gemini API Key
-1. Visit [aistudio.google.com](https://aistudio.google.com)
-2. Sign in with your Google account
-3. Click "Get API key" on the top right of the page
-4. Create a new API key
-5. Copy the API key
+```bash
+cd ~/Documents/
+git clone https://github.com/jc4p/what-x-are-you-template
+cd what-x-are-you-template
+```
 
-#### Cloudflare R2 (Optional - for image sharing)
-1. Log into [Cloudflare Dashboard](https://dash.cloudflare.com)
-2. Go to R2 Object Storage
-3. Create a bucket if you don't have one
-4. Go to Manage R2 API Tokens → Create API token
-5. Set permissions to "Object Read & Write"
-6. Create token and save the credentials
-7. Set up a public bucket URL for serving images
+### 3. Set Up Environment Variables
 
-### 3. Environment Variables
+Create your environment file by copying the sample:
 
-Create a `.env.local` file in the root directory:
+```bash
+# Copy the sample environment file
+cp .env.sample .env.local
+```
+
+This creates a `.env.local` file with the following structure:
 
 ```bash
 # Required
@@ -59,13 +52,38 @@ R2_BUCKET_NAME=your_bucket_name
 R2_PUBLIC_URL=https://your-bucket-url.r2.dev
 ```
 
-### 4. Installation & Running
+### 4. Get Your API Keys
+
+Now you'll need to get the API keys and fill them into your `.env.local` file:
+
+#### Neynar API Key
+1. Go to [neynar.com](https://neynar.com)
+2. Sign up and navigate to the dashboard
+3. Create a new app
+4. Copy your API key
+5. Replace `your_neynar_api_key_here` in your `.env.local` file
+
+#### Google Gemini API Key
+1. Visit [aistudio.google.com](https://aistudio.google.com)
+2. Sign in with your Google account
+3. Click "Get API key" on the top right of the page
+4. Create a new API key
+5. Copy the API key
+6. Replace `your_gemini_api_key_here` in your `.env.local` file
+
+#### Cloudflare R2 (Optional - for image sharing)
+1. Log into [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. Go to R2 Object Storage
+3. Create a bucket if you don't have one
+4. Go to Manage R2 API Tokens → Create API token
+5. Set permissions to "Object Read & Write"
+6. Create token and save the credentials
+7. Set up a public bucket URL for serving images
+8. Fill in all the R2 variables in your `.env.local` file
+
+### 5. Install Dependencies and Run
 
 ```bash
-# Clone the repository
-git clone https://github.com/jc4p/what-x-are-you-template
-cd what-x-are-you-template
-
 # Install dependencies
 npm install
 
