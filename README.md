@@ -71,7 +71,9 @@ Now you'll need to get the API keys and fill them into your `.env.local` file:
 5. Copy the API key
 6. Replace `your_gemini_api_key_here` in your `.env.local` file
 
-#### Cloudflare R2 (Optional - for image sharing)
+#### Cloudflare R2 (Optional - for enhanced image sharing)
+**Note**: Sharing works without R2, but R2 provides custom result images when sharing.
+
 1. Log into [Cloudflare Dashboard](https://dash.cloudflare.com)
 2. Go to R2 Object Storage
 3. Create a bucket if you don't have one
@@ -160,7 +162,7 @@ The main UI component that:
 - Detects Farcaster Frame context
 - Fetches user analysis from the API
 - Displays results with house colors and percentages
-- Handles sharing functionality (when R2 is configured)
+- Handles sharing functionality (works with or without R2)
 
 #### `/src/lib/gemini.js`
 Gemini AI integration:
@@ -195,10 +197,10 @@ Main analysis endpoint:
 - Returns combined results
 
 #### `/src/app/api/create-share-link/route.js`
-Share image generation (requires R2):
-- Creates OG image with results
-- Uploads to Cloudflare R2
-- Returns shareable URL
+Share link generation:
+- Creates shareable URLs that work with or without R2
+- If R2 is configured: creates OG image, uploads to R2, includes custom image
+- If R2 is not configured: returns basic shareable URL without custom image
 
 #### `/src/app/api/og/route.js`
 Open Graph image generator:
@@ -226,5 +228,5 @@ Open Graph image generator:
 
 - **"Not in frame context"**: The app must be opened within a Farcaster client
 - **API errors**: Check your environment variables are set correctly
-- **Share button fails**: R2 configuration is optional; sharing requires all R2 variables
+- **Share button fails**: R2 configuration is optional; sharing works without R2 but won't include custom images
 - **No user data**: Ensure the FID exists and Neynar API key is valid

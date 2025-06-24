@@ -118,8 +118,8 @@ export function HomeComponent() {
         throw new Error(errorData.error || `Failed to create share link (status: ${apiResponse.status})`);
       }
 
-      // Destructure generatedImageR2Url as well
-      const { shareablePageUrl, generatedImageR2Url } = await apiResponse.json();
+      // Destructure response data
+      const { shareablePageUrl, generatedImageR2Url, hasCustomImage } = await apiResponse.json();
 
       // Log the R2 URL to the front-end console as requested
       if (generatedImageR2Url) {
@@ -134,7 +134,12 @@ export function HomeComponent() {
       
       await shareCastIntent(castText, shareablePageUrl);
       
-      setShareStatus('Shared!');
+      // Provide different success messages based on whether custom image was included
+      if (hasCustomImage) {
+        setShareStatus('Shared with image!');
+      } else {
+        setShareStatus('Shared!');
+      }
 
     } catch (err) {
       console.error('Error in handleShareClick:', err); // Keep error
