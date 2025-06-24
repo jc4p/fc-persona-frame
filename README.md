@@ -15,6 +15,15 @@ A Farcaster mini-app template that analyzes user profiles and casts to determine
 - Cursor or Visual Studio Code with Copilot enabled
 - Ability to open up your Terminal (in Applications/Utilities folder) and run `npm --version` and have it spit out a number
 
+If you do not have `npm` installed yet please Open the Terminal app and run:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+nvm use stable
+```
+
+After that run `npm --version` and ensure it says something like 10.9.2 or any other numbers
+
 ### 2. Clone the Repository
 
 Open the Terminal app and run:
