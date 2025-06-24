@@ -108,6 +108,17 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Development Guide
 
+### Updating the quiz
+
+The intent of this template is for you to update to be any "What [..] are you?", it has Hogwarts house as the default to show you how to do this.
+
+In `src/lib/gemini.js` you will see two things:
+
+1. The output format we want from Gemini, at the top of the file. This is the end data we show the user.
+2. The prompt we send Gemini in the middle of the file.
+
+You can update these using vibe coding to be any other criteria or X or Y or X or Y or Z etc.
+
 ## Loading in Farcaster debugger
 
 To debug your frame on Farcaster the recommended method is to utilize ngrok to make your local server accessible to the internet.
