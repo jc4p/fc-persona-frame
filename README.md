@@ -75,13 +75,13 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-**Note**: This app is designed to run inside a Farcaster Frame. To test locally, you'll need to use a Frame debugger or cast the frame URL on Farcaster.
+**Note**: This app is designed to run inside a Farcaster Frame. Opening the page alone will just show "Waiting for frame context..."
 
 ## Development Guide
 
 ## Loading in Farcaster debugger
 
-Since Farcaster Frames need to be accessible via HTTPS, you'll need to tunnel your local development server. Here's how to set up ngrok:
+To debug your frame on Farcaster the recommended method is to utilize ngrok to make your local server accessible to the internet.
 
 ### 1. Create a Free ngrok Account
 1. Go to [ngrok.com](https://ngrok.com)
@@ -107,15 +107,21 @@ npm run dev
 ngrok http 3000 --url your-project-name.ngrok.app
 ```
 
-**Note**: Replace `your-project-name` with a unique name for your project. The `--url` flag with a custom subdomain requires a free ngrok account.
+**Note**: Replace `your-project-name` with a unique name for your project.
 
 ### 4. Test Your Frame
 1. Copy the ngrok URL (e.g., `https://your-project-name.ngrok.app`)
 2. Paste it into https://farcaster.xyz/~/developers/mini-apps/preview and hit enter
+3. Hit "Open URL as Mini App"
 
 ### Cursor/AI Coding Prompts
 
-Here are effective prompts for extending this template:
+Some starter effective prompts:
+
+#### Understanding the codebase
+```
+"Analyze the codebase and give me a step by step breakdown of how it works and where I can make modifications"
+```
 
 #### Adding New Analysis Types
 ```
