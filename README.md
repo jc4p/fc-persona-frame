@@ -117,7 +117,11 @@ In `src/lib/gemini.js` you will see two things:
 1. The output format we want from Gemini, at the top of the file. This is the end data we show the user.
 2. The prompt we send Gemini in the middle of the file.
 
-You can update these using vibe coding to be any other criteria or X or Y or X or Y or Z etc.
+In `src/compoments/HomeComponent.jsx` you will find the entire front-end logic.
+
+Any changes you make to the schema in `gemini.js` will need to be reflected in the `HomeComponent.jsx`, that is the file responsible for taking the extracted data from Gemini and rendering it to the user.
+
+You can update both files using vibe coding to modify it into any format you want or to reorder the components on the page or add any new visualizations you want.
 
 ## Loading in Farcaster debugger
 
