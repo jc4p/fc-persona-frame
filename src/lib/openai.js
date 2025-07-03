@@ -190,7 +190,7 @@ ${currentCasts.join('\n---\n')}`
         }
       }
 
-      const imagePrompt = `Based on this Farcaster user's personality, interests, and posts, create a unique visual representation that captures their essence. ${artStyleDescription}. Refer to their attached profile picture for reference. Note: While this is from a crypto-centric social network, don't overemphasize crypto/web3 aspects unless they're truly dominant in the user's posts.`;
+      const imagePrompt = `Based on this Farcaster user's personality, interests, and posts, create a unique visual representation that captures their essence. ${artStyleDescription}. Be sure to incorporate their personality into the background of the image too. Refer to their attached profile picture for reference. Note: While this is from a crypto-centric social network, don't overemphasize crypto/web3 aspects unless they're truly dominant in the user's posts.`;
 
       // Add image prompt
       contentArray.push({ type: "input_text", text: imagePrompt });
@@ -202,7 +202,7 @@ ${currentCasts.join('\n---\n')}`
       
       // Start image generation (this will take 20-30 seconds)
       const imageGenerationPromise = openai.responses.create({
-        model: "gpt-4.1-mini",
+        model: "gpt-4.1-nano",
         input: [
           {
             role: "user",
@@ -211,7 +211,7 @@ ${currentCasts.join('\n---\n')}`
         ],
         tools: [{ 
           type: "image_generation",
-          quality: "medium",
+          quality: "high",
           size: "1024x1024",
         }],
       });
