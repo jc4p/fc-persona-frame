@@ -202,7 +202,7 @@ ${currentCasts.join('\n---\n')}`
       
       // Start image generation (this will take 20-30 seconds)
       const imageGenerationPromise = openai.responses.create({
-        model: "gpt-4.1",
+        model: "gpt-4.1-mini",
         input: [
           {
             role: "user",
