@@ -41,15 +41,13 @@ async function generateAIFunFacts(castsWithTimestamps, userData) {
   try {
     // Sort by timestamp to get earliest and latest
     const sortedCasts = [...castsWithTimestamps].sort((a, b) => a.timestamp - b.timestamp);
-    const earliestDate = farcasterToDate(sortedCasts[0].timestamp);
-    const latestDate = farcasterToDate(sortedCasts[sortedCasts.length - 1].timestamp);
+    // last 300 of the sorted casts
+    const filteredCasts = sortedCasts.slice(-300);
     
     const prompt = `Analyze these Farcaster posts from ${userData.username} and generate 5-7 interesting, personalized fun facts about their posting style, personality, interests, or patterns. Make them engaging and specific to this user. No need to make them superlatives or super nice, be direct and tell them what you see.
 
-User has ${castsWithTimestamps.length} total posts from ${earliestDate.toLocaleDateString()} to ${latestDate.toLocaleDateString()}.
-
 Sample of their posts:
-${sortedCasts.map(cast => cast.text).join('\n---\n')}
+${filteredCasts.map(cast => cast.text).join('\n---\n')}
 
 Generate fun facts that are:
 - Specific and personalized (not generic)
