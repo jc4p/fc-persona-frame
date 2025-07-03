@@ -188,7 +188,7 @@ ${currentCasts.join('\n---\n')}`
         }
       }
 
-      const imagePrompt = `Based on this Farcaster user's personality, interests, and posts, create a unique visual representation that captures their essence. ${artStyleDescription}. Be sure to incorporate their personality into the background of the image too. Refer to their attached profile picture for reference. Note: While this is from a crypto-centric social network, don't overemphasize crypto/web3 aspects unless they're truly dominant in the user's posts.`;
+      const imagePrompt = `Based on this Farcaster user's personality, interests, and posts, create a unique visual representation that captures their essence. ${artStyleDescription}. Be sure to incorporate their personality into the background of the image too. Refer to their attached profile picture for reference. Do not recreate the profile picture directly, create a scene with objects or symbols that represent their personality. Note: While this is from a crypto-centric social network, don't overemphasize crypto/web3 aspects unless they're truly dominant in the user's posts.`;
 
       // Add image prompt
       contentArray.push({ type: "input_text", text: imagePrompt });
