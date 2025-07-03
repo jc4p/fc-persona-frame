@@ -4,10 +4,10 @@ import { uploadToR2, isCloudflareR2Configured } from '@/lib/r2';
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { house, displayName, pfpUrl, fid } = body;
+    const { imageBase64, displayName, pfpUrl, fid } = body;
 
-    if (!house || !displayName || !fid) {
-      return NextResponse.json({ error: 'Missing required parameters: house, displayName, fid' }, { status: 400 });
+    if (!imageBase64 || !displayName || !fid) {
+      return NextResponse.json({ error: 'Missing required parameters: imageBase64, displayName, fid' }, { status: 400 });
     }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -15,46 +15,37 @@ export async function POST(request) {
       return NextResponse.json({ error: 'NEXT_PUBLIC_APP_URL is not configured.' }, { status: 500 });
     }
 
-    // Create base shareable URL without image parameter (works without R2)
+    // Create base shareable URL
     const sharePageUrl = new URL(appUrl);
     
     let generatedImageR2Url = null;
     let imageFileName = null;
 
-    // If R2 is configured, generate and upload the image
+    // If R2 is configured, upload the generated image
     if (isCloudflareR2Configured()) {
       try {
-        // Construct the URL for the OG image generator
-        const ogImageUrl = new URL(`${appUrl}/api/og`);
-        ogImageUrl.searchParams.set('house', house);
-        ogImageUrl.searchParams.set('displayName', displayName);
-        if (pfpUrl) {
-          ogImageUrl.searchParams.set('pfpUrl', pfpUrl);
-        }
-        ogImageUrl.searchParams.set('fid', fid.toString());
+        // Convert base64 to buffer
+        const imageBuffer = Buffer.from(imageBase64, 'base64');
 
-        // Fetch the image from the OG route
-        const imageResponse = await fetch(ogImageUrl.toString());
-        if (!imageResponse.ok) {
-          const errorText = await imageResponse.text();
-          console.warn('Failed to generate OG image for R2 upload:', errorText);
-        } else {
-          const imageBuffer = await imageResponse.arrayBuffer();
+        // Upload to R2
+        const timestamp = Date.now();
+        imageFileName = `ai-generated-${fid}-${timestamp}.png`;
+        const r2FileName = `ai-visual-generator/${imageFileName}`;
+        
+        generatedImageR2Url = await uploadToR2(imageBuffer, r2FileName, 'image/png');
 
-          // Upload to R2
-          const timestamp = Date.now();
-          imageFileName = `share-image-${fid}-${timestamp}.png`;
-          const r2FileName = `what-x-are-you/${imageFileName}`;
-          
-          generatedImageR2Url = await uploadToR2(Buffer.from(imageBuffer), r2FileName, 'image/png');
-
-          // Add image parameter to the shareable URL only if R2 upload succeeded
-          sharePageUrl.searchParams.set('image', imageFileName);
-        }
+        // Add image parameter to the shareable URL only if R2 upload succeeded
+        sharePageUrl.searchParams.set('image', imageFileName);
+        sharePageUrl.searchParams.set('fid', fid.toString());
+        sharePageUrl.searchParams.set('name', displayName);
       } catch (r2Error) {
         console.warn('R2 upload failed, sharing without image:', r2Error.message);
         // Continue without R2 image - sharing will still work
       }
+    } else {
+      // Without R2, we can still share basic info
+      sharePageUrl.searchParams.set('fid', fid.toString());
+      sharePageUrl.searchParams.set('name', displayName);
     }
 
     return NextResponse.json({
@@ -65,7 +56,7 @@ export async function POST(request) {
     });
 
   } catch (error) {
-    console.error('Error in create-share-link:', error); // Keep error
+    console.error('Error in create-share-link:', error);
     return NextResponse.json({ error: 'Internal Server Error', details: error.message }, { status: 500 });
   }
 } 

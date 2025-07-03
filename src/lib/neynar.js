@@ -1,3 +1,11 @@
+// Snapchain API configuration
+const SNAPCHAIN_HTTP_API_URL = process.env.SNAPCHAIN_HTTP_API_URL;
+
+if (!SNAPCHAIN_HTTP_API_URL) {
+  console.warn("SNAPCHAIN_HTTP_API_URL environment variable is not set. Cast fetching will fail.");
+}
+
+// Neynar API configuration
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
 const NEYNAR_API_URL = 'https://api.neynar.com/v2/farcaster/user/bulk';
 const NEYNAR_CASTS_API_URL = 'https://api.neynar.com/v2/farcaster/feed/user/casts';
@@ -56,84 +64,186 @@ export async function getUserDataFromNeynar(fid) {
 }
 
 /**
- * Fetches the text of recent casts for a given FID, handling pagination.
+ * Fetches the text of recent casts for a given FID using Snapchain API endpoint.
+ * This API returns lifetime casts for better analysis.
+ * Filters out replies (casts with parentCastId).
  * @param {number} fid - The Farcaster ID of the user.
- * @param {number} pages - How many pages of results to fetch.
- * @param {number} limit - How many casts per page.
+ * @param {number} maxCasts - Maximum number of casts to fetch (for token limit management).
  * @returns {Promise<string[]>} An array of cast texts, or empty array if an error occurs.
  */
-export async function getRecentCastTexts(fid, pages = 3, limit = 150) {
-  if (!NEYNAR_API_KEY) {
-    console.error("Cannot fetch casts from Neynar: NEYNAR_API_KEY is not set.");
+export async function getRecentCastTexts(fid, maxCasts = Infinity) {
+  if (!SNAPCHAIN_HTTP_API_URL) {
+    console.error("Cannot fetch casts: SNAPCHAIN_HTTP_API_URL is not set.");
     return [];
   }
+  
   if (!fid || typeof fid !== 'number') {
     console.error("Invalid FID provided to getRecentCastTexts:", fid);
     return [];
   }
 
   let allCastTexts = [];
-  let cursor = null;
-  const includeReplies = false; // As requested
+  let nextPageToken = null;
+  
+  console.log(`Fetching casts for FID ${fid} from Snapchain API...`);
 
-  console.log(`Fetching ${pages} pages of casts for FID ${fid}, limit ${limit}...`);
-
-  for (let i = 0; i < pages; i++) {
+  // Keep fetching until we reach maxCasts or run out of pages
+  while (allCastTexts.length < maxCasts) {
     const params = new URLSearchParams({
-      fids: fid.toString(), // Changed param name based on v2 docs (assuming it's `fids` like user bulk, but using `fid` as per user provided curl)
-      limit: limit.toString(),
-      include_replies: includeReplies.toString(),
+      fid: fid.toString()
     });
-    // Let's retry using `fid` as the param name as per the user's curl example for casts
-    params.set('fid', fid.toString());
-    params.delete('fids'); // Remove the other one
-
-    if (cursor) {
-      params.append('cursor', cursor);
+    
+    if (nextPageToken) {
+      params.append('pageToken', nextPageToken);
     }
 
-    const url = `${NEYNAR_CASTS_API_URL}?${params.toString()}`;
-    console.log(`Fetching page ${i + 1}: ${url}`);
-
+    const url = `${SNAPCHAIN_HTTP_API_URL}?${params.toString()}`;
+    
     try {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'accept': 'application/json',
-          'api_key': NEYNAR_API_KEY,
-          'x-neynar-experimental': 'false' // As requested
+          'accept': 'application/json'
         },
       });
 
       if (!response.ok) {
         const errorBody = await response.text();
-        console.error(`Neynar Casts API request failed (page ${i + 1}) with status ${response.status}: ${errorBody}`);
-        break; // Stop fetching if one page fails
+        console.error(`Snapchain API request failed with status ${response.status}: ${errorBody}`);
+        break;
       }
 
       const data = await response.json();
 
-      if (data.casts && data.casts.length > 0) {
-        const texts = data.casts.map(cast => cast.text).filter(Boolean); // Get text, remove empty strings
+      if (data.messages && data.messages.length > 0) {
+        // Filter out replies (parentCastId !== null) and extract text
+        const texts = data.messages
+          .filter(msg => 
+            msg.data?.castAddBody?.text && 
+            msg.data?.castAddBody?.parentCastId === null
+          )
+          .map(msg => msg.data.castAddBody.text)
+          .filter(Boolean);
+        
         allCastTexts = allCastTexts.concat(texts);
-        console.log(`Page ${i + 1}: Fetched ${texts.length} cast texts.`);
+        console.log(`Fetched ${texts.length} cast texts (excluding replies). Total: ${allCastTexts.length}`);
       } else {
-        console.log(`Page ${i + 1}: No casts found.`);
+        console.log("No more casts found.");
+        break;
       }
 
-      // Get cursor for next page
-      cursor = data.next?.cursor;
-      if (!cursor) {
-        console.log(`Page ${i + 1}: No next cursor found, stopping pagination.`);
-        break; // No more pages
+      // Check for next page
+      nextPageToken = data.nextPageToken;
+      if (!nextPageToken) {
+        console.log("No next page token found, all casts fetched.");
+        break;
       }
 
     } catch (error) {
-      console.error(`Error fetching casts (page ${i + 1}) from Neynar:`, error);
-      break; // Stop fetching on error
+      console.error('Error fetching casts from Snapchain API:', error);
+      break;
     }
+  }
+
+  // Trim to maxCasts if we fetched more
+  if (allCastTexts.length > maxCasts) {
+    allCastTexts = allCastTexts.slice(0, maxCasts);
+    console.log(`Trimmed casts to ${maxCasts} maximum.`);
   }
 
   console.log(`Finished fetching casts. Total texts: ${allCastTexts.length}`);
   return allCastTexts;
+}
+
+/**
+ * Fetches casts with timestamps for a given FID using Snapchain API endpoint.
+ * @param {number} fid - The Farcaster ID of the user.
+ * @param {number} maxCasts - Maximum number of casts to fetch.
+ * @returns {Promise<Array<{text: string, timestamp: number}>>} An array of cast objects with text and timestamp.
+ */
+export async function getRecentCastsWithTimestamps(fid, maxCasts = Infinity) {
+  if (!SNAPCHAIN_HTTP_API_URL) {
+    console.error("Cannot fetch casts: SNAPCHAIN_HTTP_API_URL is not set.");
+    return [];
+  }
+  
+  if (!fid || typeof fid !== 'number') {
+    console.error("Invalid FID provided to getRecentCastsWithTimestamps:", fid);
+    return [];
+  }
+
+  let allCasts = [];
+  let nextPageToken = null;
+  
+  console.log(`Fetching casts with timestamps for FID ${fid} from Snapchain API...`);
+
+  // Keep fetching until we reach maxCasts or run out of pages
+  while (allCasts.length < maxCasts) {
+    const params = new URLSearchParams({
+      fid: fid.toString()
+    });
+    
+    if (nextPageToken) {
+      params.append('pageToken', nextPageToken);
+    }
+
+    const url = `${SNAPCHAIN_HTTP_API_URL}?${params.toString()}`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'accept': 'application/json'
+        },
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`Snapchain API request failed with status ${response.status}: ${errorBody}`);
+        break;
+      }
+
+      const data = await response.json();
+
+      if (data.messages && data.messages.length > 0) {
+        // Filter out replies (parentCastId !== null) and extract text with timestamp
+        const casts = data.messages
+          .filter(msg => 
+            msg.data?.castAddBody?.text && 
+            msg.data?.castAddBody?.parentCastId === null
+          )
+          .map(msg => ({
+            text: msg.data.castAddBody.text,
+            timestamp: msg.data.timestamp
+          }))
+          .filter(cast => cast.text && cast.timestamp);
+        
+        allCasts = allCasts.concat(casts);
+        console.log(`Fetched ${casts.length} casts with timestamps. Total: ${allCasts.length}`);
+      } else {
+        console.log("No more casts found.");
+        break;
+      }
+
+      // Check for next page
+      nextPageToken = data.nextPageToken;
+      if (!nextPageToken) {
+        console.log("No next page token found, all casts fetched.");
+        break;
+      }
+
+    } catch (error) {
+      console.error('Error fetching casts from Snapchain API:', error);
+      break;
+    }
+  }
+
+  // Trim to maxCasts if we fetched more
+  if (allCasts.length > maxCasts) {
+    allCasts = allCasts.slice(0, maxCasts);
+    console.log(`Trimmed casts to ${maxCasts} maximum.`);
+  }
+
+  console.log(`Finished fetching casts. Total: ${allCasts.length}`);
+  return allCasts;
 } 

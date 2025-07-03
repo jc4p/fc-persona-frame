@@ -5,24 +5,19 @@ export const runtime = 'edge';
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
 
     // Params from query string
-    const house = searchParams.get('house') || 'Your House';
-    const displayName = searchParams.get('displayName') || 'Anonymous User';
-    const pfpUrl = searchParams.get('pfpUrl');
-    // const fid = searchParams.get('fid'); // Not directly used in image text but good for context
+    const displayName = searchParams.get('name') || searchParams.get('displayName') || 'Anonymous User';
+    const imageFileName = searchParams.get('image');
+    const fid = searchParams.get('fid');
 
-    // Basic validation for pfpUrl
-    let validPfpUrl = null;
-    if (pfpUrl) {
-      try {
-        const pfpUrlObj = new URL(pfpUrl);
-        if (pfpUrlObj.protocol === 'http:' || pfpUrlObj.protocol === 'https:') {
-          validPfpUrl = pfpUrl;
-        }
-      } catch (e) {
-        // console.warn('Invalid pfpUrl provided:', pfpUrl); // Reduce logging
-      }
+    // Get R2 public URL if configured
+    const r2PublicUrl = process.env.R2_PUBLIC_URL;
+    let generatedImageUrl = null;
+    
+    if (imageFileName && r2PublicUrl) {
+      generatedImageUrl = `${r2PublicUrl}/ai-visual-generator/${imageFileName}`;
     }
 
     return new ImageResponse(
@@ -35,80 +30,98 @@ export async function GET(request) {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: '#f0f0f0',
+            background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
             fontFamily: '"Arial", sans-serif',
             fontSize: 32,
-            color: 'black',
-            padding: '20px',
-            border: '20px solid #4A90E2'
+            color: 'white',
+            padding: '40px',
+            position: 'relative'
           }}
         >
-          {/* Wrapper for conditional image/placeholder */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '20px' }}>
-            {validPfpUrl ? (
+          {/* Generated Image or Placeholder */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            marginBottom: '30px',
+            width: '300px',
+            height: '300px',
+            borderRadius: '20px',
+            overflow: 'hidden',
+            boxShadow: '0 12px 40px rgba(0, 0, 0, 0.5)'
+          }}>
+            {generatedImageUrl ? (
               <img
-                src={validPfpUrl}
-                alt="User PFP"
-                width={100}
-                height={100}
+                src={generatedImageUrl}
+                alt="AI Generated Visual"
+                width={300}
+                height={300}
                 style={{
-                  borderRadius: '50%',
-                  border: '4px solid #4A90E2'
+                  objectFit: 'cover'
                 }}
               />
             ) : (
               <div 
                 style={{ 
-                  width: 100, 
-                  height: 100, 
-                  borderRadius: '50%', 
-                  backgroundColor: '#ccc', 
-                  border: '4px solid #4A90E2' 
+                  width: '100%', 
+                  height: '100%', 
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '120px'
                 }}
-              />
+              >
+                ✨
+              </div>
             )}
           </div>
           
           <div style={{
             display: 'flex',
-            justifyContent: 'center',
+            flexDirection: 'column',
+            alignItems: 'center',
             textAlign: 'center',
-            marginBottom: '15px',
-            fontSize: '40px',
-            fontWeight: 'bold',
-            color: '#333'
-          }}>{displayName}</div>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            textAlign: 'center',
-            fontSize: '50px',
-            fontWeight: 'bold',
-            color: '#D95F24',
-            marginBottom: '20px'
+            gap: '10px'
           }}>
-            I'm a {house}!
+            <div style={{
+              fontSize: '36px',
+              fontWeight: 'bold',
+              color: '#ffd700'
+            }}>{displayName}'s</div>
+            
+            <div style={{
+              fontSize: '42px',
+              fontWeight: 'bold',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              color: 'transparent'
+            }}>
+              AI Visual Representation
+            </div>
           </div>
 
           <div style={{
             display: 'flex',
             justifyContent: 'center',
             textAlign: 'center',
-            fontSize: '28px',
-            color: '#555',
-            marginTop: 'auto'
+            fontSize: '24px',
+            color: '#aaa',
+            marginTop: 'auto',
+            opacity: 0.8
           }}>
-            Find out your type now!
+            Generate yours at {appUrl}
           </div>
         </div>
       ),
       {
         width: 600,
-        height: 400,
+        height: 600,
       },
     );
   } catch (e) {
-    console.error('Error generating image:', e.message);
+    console.error('Error generating OG image:', e.message);
     if (e.cause) {
       console.error('Cause:', e.cause);
     }
