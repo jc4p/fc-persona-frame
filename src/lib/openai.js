@@ -38,16 +38,20 @@ const CastAnalysis = z.object({
 async function generateAIFunFacts(castsWithTimestamps, userData) {
   if (!castsWithTimestamps || castsWithTimestamps.length === 0) return [];
   
-  try {
-    // Sort by timestamp to get earliest and latest
-    const sortedCasts = [...castsWithTimestamps].sort((a, b) => a.timestamp - b.timestamp);
-    // last 300 of the sorted casts
-    const filteredCasts = sortedCasts.slice(-300);
-    
-    const prompt = `Analyze these Farcaster posts from ${userData.username} and generate 5-7 interesting, personalized fun facts about their posting style, personality, interests, or patterns. Make them engaging and specific to this user. No need to make them superlatives or super nice, be direct and tell them what you see.
+  let currentCasts = [...castsWithTimestamps];
+  let attempts = 0;
+  const MAX_ATTEMPTS = 5;
+  const MIN_CASTS = 10;
+  
+  while (attempts < MAX_ATTEMPTS && currentCasts.length >= MIN_CASTS) {
+    try {
+      attempts++;
+      console.log(`Analyzing ${currentCasts.length} casts (attempt ${attempts})...`);
+      
+      const prompt = `Analyze these Farcaster posts from ${userData.username} and generate 5-7 interesting, personalized fun facts about their posting style, personality, interests, or patterns. Make them engaging and specific to this user. No need to make them superlatives or super nice, be direct and tell them what you see.
 
 Sample of their posts:
-${filteredCasts.map(cast => cast.text).join('\n---\n')}
+${currentCasts.map(cast => cast.text).join('\n---\n')}
 
 Generate fun facts that are:
 - Specific and personalized (not generic)
@@ -60,25 +64,42 @@ Speak directly to the user in the first person.
 
 Also analyze their overall vibe and suggest an art style/theme that would best represent them visually. Consider their interests, tone, and personality.`;
 
-    const response = await openai.chat.completions.parse({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.8,
-      max_tokens: 500,
-      response_format: zodResponseFormat(CastAnalysis, "cast_analysis")
-    });
+      const response = await openai.chat.completions.parse({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.8,
+        max_tokens: 500,
+        response_format: zodResponseFormat(CastAnalysis, "cast_analysis")
+      });
 
-    const analysis = response.choices[0].message.parsed;
-    
-    return {
-      facts: analysis.facts || [],
-      artStyle: analysis.artStyle || null
-    };
-  } catch (error) {
-    console.error('Error generating AI fun facts:', error);
-    // Fallback to basic stats if AI fails
-    return generateBasicFacts(castsWithTimestamps);
+      const analysis = response.choices[0].message.parsed;
+      
+      return {
+        facts: analysis.facts || [],
+        artStyle: analysis.artStyle || null
+      };
+    } catch (error) {
+      console.error(`AI analysis error (attempt ${attempts}):`, error);
+      
+      if (error.message && (error.message.includes('token') || error.message.includes('limit'))) {
+        // Reduce casts by 20% from the beginning (keep most recent)
+        const removeCount = Math.max(1, Math.floor(currentCasts.length * 0.2));
+        currentCasts = currentCasts.slice(removeCount);
+        console.log(`Reducing to ${currentCasts.length} casts and retrying...`);
+        
+        if (currentCasts.length < MIN_CASTS) {
+          console.error('Not enough posts to generate analysis');
+          return generateBasicFacts(castsWithTimestamps);
+        }
+      } else {
+        console.error('Error generating AI fun facts:', error);
+        return generateBasicFacts(castsWithTimestamps);
+      }
+    }
   }
+  
+  console.error('Failed to generate AI analysis after maximum attempts');
+  return generateBasicFacts(castsWithTimestamps);
 }
 
 /**
@@ -177,10 +198,10 @@ ${currentCasts.join('\n---\n')}`
       if (castsWithTimestamps && castsWithTimestamps.length > 0) {
         
         try {
-          analysisResult = await generateAIFunFacts(castsWithTimestamps.slice(0, currentCasts.length), userData);
+          analysisResult = await generateAIFunFacts(castsWithTimestamps, userData);
           
           if (analysisResult && analysisResult.artStyle) {
-            artStyleDescription = ` The art style should be: ${analysisResult.artStyle}.`;
+            artStyleDescription = analysisResult.artStyle;
             console.log('Art style determined:', analysisResult.artStyle);
           }
         } catch (error) {
@@ -188,7 +209,7 @@ ${currentCasts.join('\n---\n')}`
         }
       }
 
-      const imagePrompt = `Based on this Farcaster user's personality, interests, and posts, create a unique visual representation that captures their essence. ${artStyleDescription}. Be sure to incorporate their personality into the background of the image too. Refer to their attached profile picture for reference. Do not recreate the profile picture directly, create a scene with objects or symbols that represent their personality. Note: While this is from a crypto-centric social network, don't overemphasize crypto/web3 aspects unless they're truly dominant in the user's posts.`;
+      const imagePrompt = `Based on this Farcaster user's personality, interests, and posts, create a unique visual representation that captures their essence. The art style should be: ${artStyleDescription}. Create a scene showing this person in their natural habitat - a setting or environment that represents their interests, personality, and lifestyle based on their posts. Feature the person prominently in the scene (use their attached profile picture as reference for their appearance - maintain their likeness and key visual characteristics while adapting them naturally into the scene). Surround them with objects, symbols, or activities that represent their personality. The person should be integrated into the scene, not just placed on top. Note: While this is from a crypto-centric social network, don't overemphasize crypto/web3 aspects unless they're truly dominant in the user's posts.`;
 
       // Add image prompt
       contentArray.push({ type: "input_text", text: imagePrompt });
@@ -260,6 +281,7 @@ ${currentCasts.join('\n---\n')}`
       console.error(`Streaming error (attempt ${attempts}):`, error);
       
       if (error.message && (error.message.includes('token') || error.message.includes('limit'))) {
+        // Reduce casts by 20% from the beginning (keep most recent)
         const removeCount = Math.max(1, Math.floor(currentCasts.length * 0.2));
         currentCasts = currentCasts.slice(removeCount);
         yield { 

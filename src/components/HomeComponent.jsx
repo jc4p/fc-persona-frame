@@ -251,6 +251,7 @@ export function HomeComponent() {
         <div className={styles.generatingContainer}>
           <div className={styles.spinner}></div>
           <p className={styles.generationStatus}>{generationStatus}</p>
+          <p className={styles.generationTimeNote}>This may take 60-90 seconds</p>
           {currentFunFact && (
             <div className={styles.funFactContainer}>
               <p className={styles.funFact}>💡 {currentFunFact}</p>
