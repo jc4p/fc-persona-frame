@@ -1,5 +1,5 @@
 import { getUserDataFromNeynar, getRecentCastTexts, getRecentCastsWithTimestamps } from '@/lib/neynar';
-import { generateUserImageStream } from '@/lib/openai';
+import { generateUserImageStream } from '@/lib/ai-generation';
 
 // Use Node.js runtime for streaming
 export const runtime = 'nodejs';
@@ -66,8 +66,8 @@ export async function GET(request) {
       // Extract just the texts for compatibility
       const castTexts = castsWithTimestamps.map(cast => cast.text);
 
-      console.log('First cast:', castsWithTimestamps[0]);
-      console.log('Last cast:', castsWithTimestamps[castsWithTimestamps.length - 1]);
+      // console.log('First cast:', castsWithTimestamps[0]);
+      // console.log('Last cast:', castsWithTimestamps[castsWithTimestamps.length - 1]);
 
       if (!userData) {
         await writer.write(

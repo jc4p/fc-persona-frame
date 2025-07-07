@@ -3,7 +3,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import styles from './HomeComponent.module.css';
-import { shareCastIntent } from '@/lib/frame';
+import { 
+  NETWORKS, 
+  verifyAndSwitchNetwork, 
+  sendETHTransaction 
+} from '@/lib/frame';
+
+// Replace with your actual wallet address
+const RECIPIENT_WALLET = process.env.NEXT_PUBLIC_RECIPIENT_WALLET || '0x...';
 
 export function HomeComponent() {
   const [userData, setUserData] = useState(null);
@@ -14,7 +21,49 @@ export function HomeComponent() {
   const [currentFunFact, setCurrentFunFact] = useState('');
   const [error, setError] = useState(null);
   const [fid, setFid] = useState(null);
-  const [shareStatus, setShareStatus] = useState('');
+  
+  // Payment and credits state
+  const [selectedNetwork, setSelectedNetwork] = useState('arbitrum');
+  const [generationCredits, setGenerationCredits] = useState(0);
+  const [sessionImages, setSessionImages] = useState([]);
+  const [isPaying, setIsPaying] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState('');
+  const [transactionHash, setTransactionHash] = useState(null);
+  const [selectedHistoryImage, setSelectedHistoryImage] = useState(null);
+
+  // Load cached credits on mount
+  useEffect(() => {
+    if (fid) {
+      const cachedData = localStorage.getItem(`fc-persona-${fid}`);
+      if (cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          if (parsed.credits > 0) {
+            setGenerationCredits(parsed.credits);
+          }
+          // Note: We don't restore session images due to localStorage size limits
+        } catch (e) {
+          console.error('Error loading cached data:', e);
+        }
+      }
+    }
+  }, [fid]);
+
+  // Save credits to localStorage whenever they change (not images due to size)
+  useEffect(() => {
+    if (fid) {
+      const dataToCache = {
+        credits: generationCredits,
+        imageCount: sessionImages.length,
+        lastUpdated: Date.now()
+      };
+      try {
+        localStorage.setItem(`fc-persona-${fid}`, JSON.stringify(dataToCache));
+      } catch (e) {
+        console.error('Failed to save to localStorage:', e);
+      }
+    }
+  }, [fid, generationCredits, sessionImages.length]);
 
   // Effect to check for window.userFid
   useEffect(() => {
@@ -53,9 +102,83 @@ export function HomeComponent() {
     };
   }, []);
 
+  // Handle payment
+  const handlePayment = useCallback(async () => {
+    if (!fid) return;
+    
+    setIsPaying(true);
+    setPaymentStatus('Checking network...');
+    setError(null);
+    
+    try {
+      // Verify/switch to the selected network
+      await verifyAndSwitchNetwork(selectedNetwork);
+      
+      setPaymentStatus('Requesting payment...');
+      
+      // Send ETH transaction
+      const price = NETWORKS[selectedNetwork].price;
+      const txHash = await sendETHTransaction(RECIPIENT_WALLET, price);
+      
+      setTransactionHash(txHash);
+      setPaymentStatus('Verifying transaction...');
+      
+      // First check if this transaction was already used locally
+      const usedTransactions = JSON.parse(localStorage.getItem('fc-persona-used-txs') || '[]');
+      if (usedTransactions.includes(txHash)) {
+        throw new Error('This transaction has already been used');
+      }
+
+      // Verify transaction with backend
+      const verifyResponse = await fetch('/api/verify-transaction', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          txHash,
+          network: selectedNetwork,
+          fid
+        }),
+      });
+      
+      const verifyData = await verifyResponse.json();
+      
+      if (!verifyResponse.ok) {
+        throw new Error(verifyData.error || 'Transaction verification failed');
+      }
+      
+      // Store used transaction locally
+      usedTransactions.push(txHash);
+      localStorage.setItem('fc-persona-used-txs', JSON.stringify(usedTransactions));
+      
+      // Grant credits
+      setGenerationCredits(verifyData.credits || 3);
+      setSessionImages([]); // Reset session images for new payment
+      setPaymentStatus('Payment successful!');
+      
+      // Clear payment status after delay
+      setTimeout(() => {
+        setPaymentStatus('');
+        setTransactionHash(null);
+      }, 3000);
+      
+    } catch (err) {
+      console.error('Payment error:', err);
+      setError(err.message || 'Payment failed');
+      setPaymentStatus('');
+      // Clear error after a delay
+      setTimeout(() => {
+        setError(null);
+      }, 5000);
+    } finally {
+      setIsPaying(false);
+    }
+  }, [fid, selectedNetwork]);
+
   // Generate image with streaming
   const generateImageStream = useCallback(async () => {
-    if (!fid) return;
+    if (!fid || generationCredits <= 0) return;
     
     setIsGenerating(true);
     setError(null);
@@ -79,13 +202,20 @@ export function HomeComponent() {
             break;
             
           case 'final_image':
-            setGeneratedImage({
+            const newImage = {
               imageBase64: data.imageBase64,
               castsUsed: data.castsUsed,
               timestamp: data.timestamp,
               artStyle: data.artStyle
-            });
+            };
+            setGeneratedImage(newImage);
             setGenerationStatus('Complete!');
+            
+            // Add to session history
+            setSessionImages(prev => [...prev, newImage]);
+            
+            // Decrease credits
+            setGenerationCredits(prev => prev - 1);
             break;
             
           case 'complete':
@@ -119,64 +249,8 @@ export function HomeComponent() {
       setError(err.message || 'Failed to generate image');
       setIsGenerating(false);
     }
-  }, [fid]);
+  }, [fid, generationCredits]);
 
-
-  const handleShareClick = useCallback(async () => {
-    if (!generatedImage || !fid || !userData) {
-      setShareStatus('Error: Missing data');
-      setTimeout(() => setShareStatus(''), 3000);
-      return;
-    }
-
-    setShareStatus('Sharing...');
-
-    try {
-      const apiResponse = await fetch('/api/create-share-link', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          imageBase64: generatedImage.imageBase64,
-          displayName: userData.display_name || userData.username || `FID ${fid}`,
-          pfpUrl: userData.pfp_url || '',
-          fid: fid,
-        }),
-      });
-
-      if (!apiResponse.ok) {
-        const errorData = await apiResponse.json();
-        throw new Error(errorData.error || `Failed to create share link (status: ${apiResponse.status})`);
-      }
-
-      const { shareablePageUrl, generatedImageR2Url, hasCustomImage } = await apiResponse.json();
-
-      if (generatedImageR2Url) {
-        console.log('Final R2 Image URL:', generatedImageR2Url);
-      }
-
-      if (!shareablePageUrl) {
-        throw new Error('Shareable Page URL not received from API.');
-      }
-
-      const castText = `Check out my AI-generated visual representation based on my Farcaster personality!`;
-      
-      await shareCastIntent(castText, shareablePageUrl);
-      
-      if (hasCustomImage) {
-        setShareStatus('Shared with image!');
-      } else {
-        setShareStatus('Shared!');
-      }
-
-    } catch (err) {
-      console.error('Error in handleShareClick:', err);
-      setShareStatus(`Share failed: ${err.message.substring(0, 50)}...`);
-    } finally {
-      setTimeout(() => setShareStatus(''), 5000); 
-    }
-  }, [generatedImage, userData, fid]);
 
   // Loading State UI
   if (!fid || isLoading) {
@@ -188,18 +262,96 @@ export function HomeComponent() {
     );
   }
 
-  // Error State UI
-  if (error && !isGenerating) {
+  // Payment Screen (when no credits)
+  if (generationCredits === 0 && !generatedImage) {
     return (
-      <div className={styles.container}>
-        <h2 className={styles.errorTitle}>Generation Error</h2>
-        <p className={styles.errorMessage}>{error}</p>
-        <button 
-          className={styles.retryButton}
-          onClick={generateImageStream}
-        >
-          Try Again
-        </button>
+      <div className={styles.paymentContainer}>
+        {/* Credits display */}
+        {sessionImages.length > 0 && (
+          <div className={styles.creditsDisplay}>
+            <span>Credits: <span className={styles.creditsCount}>0</span></span>
+          </div>
+        )}
+        
+        <div className={styles.paymentCard}>
+          <h1 className={styles.titleSmall}>Farcaster Personas</h1>
+          <p className={styles.introText}>What does your Farcaster Persona look like? We'll analyze your casts to see.</p>
+          
+          {/* Network selector */}
+          <div className={styles.networkSelector}>
+            <button
+              className={`${styles.networkButton} ${selectedNetwork === 'base' ? styles.active : ''}`}
+              onClick={() => setSelectedNetwork('base')}
+              disabled={isPaying}
+            >
+              Base
+            </button>
+            <button
+              className={`${styles.networkButton} ${selectedNetwork === 'arbitrum' ? styles.active : ''}`}
+              onClick={() => setSelectedNetwork('arbitrum')}
+              disabled={isPaying}
+            >
+              <div>
+                <div>Arbitrum</div>
+                <div className={styles.networkSaveLabel}>Save 30%</div>
+              </div>
+            </button>
+          </div>
+          
+          {/* Price display */}
+          <div className={styles.priceDisplay}>
+            {NETWORKS[selectedNetwork].price} ETH
+          </div>
+          <p className={styles.priceLabel}>
+            Pay once, generate 3 images
+          </p>
+          
+          {/* Payment button */}
+          <button
+            className={styles.payButton}
+            onClick={handlePayment}
+            disabled={isPaying}
+          >
+            {isPaying ? 'Processing...' : 'Pay to Generate'}
+          </button>
+          
+          {/* Transaction status */}
+          {paymentStatus && (
+            <div className={`${styles.transactionStatus} ${
+              paymentStatus.includes('successful') ? styles.transactionSuccess :
+              paymentStatus.includes('failed') ? styles.transactionError :
+              styles.transactionPending
+            }`}>
+              {paymentStatus}
+            </div>
+          )}
+          
+          {/* Error display */}
+          {error && (
+            <div className={styles.transactionError}>
+              {error}
+            </div>
+          )}
+        </div>
+        
+        {/* Show previous images from this session */}
+        {sessionImages.length > 0 && (
+          <div className={styles.sessionHistory}>
+            {sessionImages.map((img, index) => (
+              <div key={index} className={styles.historyImageWrapper}>
+                <span className={styles.historyImageNumber}>#{index + 1}</span>
+                <Image
+                  src={`data:image/png;base64,${img.imageBase64}`}
+                  alt={`Generation ${index + 1}`}
+                  width={150}
+                  height={150}
+                  className={styles.historyImage}
+                  unoptimized={true}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -207,9 +359,14 @@ export function HomeComponent() {
   // Show the final image
   const displayImage = generatedImage?.imageBase64;
 
-  // Main Content UI
+  // Main Content UI (with credits)
   return (
     <div className={styles.container}>
+      {/* Credits display */}
+      <div className={styles.creditsDisplay}>
+        <span>Credits: <span className={styles.creditsCount}>{generationCredits}</span></span>
+      </div>
+      
       {/* Header */} 
       <div className={styles.headerContainer}>
         {userData && userData.pfp_url && (
@@ -226,22 +383,60 @@ export function HomeComponent() {
           </div>
         )}
         <h1 className={styles.titleSmall}>
-          AI Visual Generator for <span className={styles.userNameHighlight}>{userData?.display_name || userData?.username || `FID ${fid}`}</span>
+          Farcaster Personas
         </h1>
       </div>
 
-      {/* Generate Button (shown when no image yet) */}
-      {!generatedImage && !isGenerating && (
+      {/* Show previous images from this session */}
+      {sessionImages.length > 1 && !isGenerating && (
+        <div className={styles.sessionHistory}>
+          {sessionImages.slice(0, -1).map((img, index) => (
+            <div key={index} className={styles.historyImageWrapper}>
+              <span className={styles.historyImageNumber}>#{index + 1}</span>
+              <Image
+                src={`data:image/png;base64,${img.imageBase64}`}
+                alt={`Generation ${index + 1}`}
+                width={150}
+                height={150}
+                className={styles.historyImage}
+                unoptimized={true}
+                onClick={() => setSelectedHistoryImage(selectedHistoryImage === index ? null : index)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Show selected history image full size */}
+      {selectedHistoryImage !== null && sessionImages[selectedHistoryImage] && !isGenerating && (
+        <div className={styles.selectedHistoryContainer}>
+          <Image
+            src={`data:image/png;base64,${sessionImages[selectedHistoryImage].imageBase64}`}
+            alt={`Generation ${selectedHistoryImage + 1}`}
+            width={512}
+            height={512}
+            className={styles.selectedHistoryImage}
+            unoptimized={true}
+            onClick={() => setSelectedHistoryImage(null)}
+          />
+        </div>
+      )}
+
+      {/* Generate Button (shown when have credits but no current image) */}
+      {!generatedImage && !isGenerating && generationCredits > 0 && (
         <div className={styles.generateContainer}>
           <p className={styles.introText}>
-            Generate a unique visual representation based on your Farcaster personality and posts
+            {sessionImages.length === 0 
+              ? "We'll analyze all your casts (ever!) to generate a unique persona."
+              : `You have ${generationCredits} generation${generationCredits > 1 ? 's' : ''} remaining`
+            }
           </p>
           <button
             className={styles.generateButton}
             onClick={generateImageStream}
             aria-label="Generate Image"
           >
-            <span role="img" aria-label="sparkles">✨</span> Generate My Image
+            <span role="img" aria-label="sparkles">✨</span> Generate {sessionImages.length > 0 ? 'Another' : ''} Image
           </button>
         </div>
       )}
@@ -282,25 +477,30 @@ export function HomeComponent() {
               
               {/* Button Container */}
               <div className={styles.buttonContainer}>
-                {/* Share Button */}
-                <button
-                  className={styles.shareButton}
-                  onClick={handleShareClick}
-                  disabled={!!shareStatus && shareStatus !== 'Share Result'}
-                  aria-label="Share Result"
-                >
-                  <span role="img" aria-label="share icon">🔗</span> 
-                  {shareStatus || 'Share Result'}
-                </button>
+                {/* Regenerate Button (only if credits remain) */}
+                {generationCredits > 0 && (
+                  <button
+                    className={styles.regenerateButton}
+                    onClick={generateImageStream}
+                    aria-label="Generate New Image"
+                  >
+                    <span role="img" aria-label="refresh">🔄</span> Generate New Image
+                  </button>
+                )}
                 
-                {/* Regenerate Button */}
-                <button
-                  className={styles.regenerateButton}
-                  onClick={generateImageStream}
-                  aria-label="Generate New Image"
-                >
-                  <span role="img" aria-label="refresh">🔄</span> Generate New Image
-                </button>
+                {/* Restart Button (if no credits) */}
+                {generationCredits === 0 && (
+                  <button
+                    className={styles.regenerateButton}
+                    onClick={() => {
+                      setGeneratedImage(null);
+                      setSessionImages([]);
+                    }}
+                    aria-label="Restart"
+                  >
+                    <span role="img" aria-label="restart">↻</span> Restart
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -308,4 +508,4 @@ export function HomeComponent() {
       )}
     </div>
   );
-} 
+}

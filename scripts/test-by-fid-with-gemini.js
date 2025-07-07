@@ -5,13 +5,14 @@ import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Configuration
-const TEST_FID = 239; // Change this to test different FIDs
+const TEST_FID = 557; // Change this to test different FIDs
 const OUTPUT_DIR = path.join(__dirname, 'output');
 
 // Model pricing (per 1M tokens)
@@ -20,15 +21,21 @@ const MODEL_PRICING = {
   'gpt-4o-mini': { input: 0.15, output: 0.60 },
   'gpt-4.1': { input: 2.00, output: 8.00 },
   'gpt-4.1-nano': { input: 0.10, output: 0.40 },
-  'gpt-4.1-mini': { input: 0.49, output: 1.60 }
+  'gpt-4.1-mini': { input: 0.49, output: 1.60 },
+  'gemini-2.5-flash': { input: 0.30, output: 2.50 },
+  'gemini-2.0-flash': { input: 0.10, output: 0.40 },
+  'gemini-2.5-pro': { 
+    input: (tokens) => tokens <= 200000 ? 1.25 : 2.50,  // Tiered input pricing
+    output: (tokens) => tokens <= 200000 ? 10.00 : 15.00  // Tiered output pricing
+  }
 };
 
 // Model selection (change these to test different models)
-const AI_ANALYSIS_MODEL = 'gpt-4.1-mini'; // Options: 'gpt-4o', 'gpt-4o-mini', etc.
-const IMAGE_GEN_MODEL = 'gpt-4.1-mini'; // Options: 'gpt-4.1-nano', 'gpt-4.1-mini'
+const AI_ANALYSIS_MODEL = 'gemini-2.5-flash'; // Options: 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'
+const IMAGE_GEN_MODEL = 'gpt-4.1-nano'; // Options: 'gpt-4.1-nano', 'gpt-4.1-mini'
 
 // Environment variables check
-const requiredEnvVars = ['NEYNAR_API_KEY', 'OPENAI_API_KEY', 'SNAPCHAIN_HTTP_API_URL'];
+const requiredEnvVars = ['NEYNAR_API_KEY', 'OPENAI_API_KEY', 'SNAPCHAIN_HTTP_API_URL', 'GEMINI_API_KEY'];
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
     console.error(`Missing required environment variable: ${envVar}`);
@@ -41,11 +48,36 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Initialize Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
 // Schema for AI analysis (copied from openai.js)
 const CastAnalysis = z.object({
   facts: z.array(z.string()).describe("5-7 personalized fun facts about the user, plain text no formatting, no markdown, direct and to the point"),
   artStyle: z.string().describe("Art style/theme that matches their personality (e.g., 'cyberpunk neon aesthetic', 'watercolor impressionism', 'minimalist geometric'), plain text, no explaination")
 });
+
+// Gemini schema for cast analysis
+const castAnalysisGeminiSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    facts: {
+      type: SchemaType.ARRAY,
+      description: "5-7 personalized fun facts about the user, plain text no formatting, no markdown, direct and to the point",
+      items: {
+        type: SchemaType.STRING,
+        description: "A personalized fun fact about the user",
+      },
+      minItems: 5,
+      maxItems: 7,
+    },
+    artStyle: {
+      type: SchemaType.STRING,
+      description: "Art style/theme that matches their personality (e.g., 'cyberpunk neon aesthetic', 'watercolor impressionism', 'minimalist geometric'), plain text, no explanation",
+    },
+  },
+  required: ["facts", "artStyle"],
+};
 
 // Helper function to convert Farcaster timestamp to Date
 function farcasterToDate(farcasterTimestamp) {
@@ -128,9 +160,9 @@ async function getRecentCastsWithTimestamps(fid, maxCasts = Infinity) {
   return allCasts.slice(0, maxCasts);
 }
 
-// Generate AI analysis with retry logic
-async function generateAIAnalysis(castsWithTimestamps, userData) {
-  console.log('🤖 Generating AI analysis...');
+// Generate AI analysis with Gemini with retry logic
+async function generateAIAnalysisWithGemini(castsWithTimestamps, userData) {
+  console.log('🤖 Generating AI analysis with Gemini...');
   
   let currentCasts = [...castsWithTimestamps];
   let attempts = 0;
@@ -156,39 +188,69 @@ Generate fun facts that are:
 
 Speak directly to the user in the first person.
 
-Also analyze their overall vibe and suggest an art style/theme that would best represent them visually. Consider their interests, tone, and personality.`;
+Also analyze their overall vibe and suggest an art style/theme that would best represent them visually. Consider their interests, tone, and personality. DO NOT INCLUDE REALISM OR HYPERREALISM AS A STYLE.`;
 
       const analysisStartTime = Date.now();
-      const response = await openai.chat.completions.parse({
+      
+      const model = genAI.getGenerativeModel({
         model: AI_ANALYSIS_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.8,
-        max_tokens: 500,
-        response_format: zodResponseFormat(CastAnalysis, "cast_analysis")
+        generationConfig: {
+          temperature: 0.8,
+          topK: 40,
+          topP: 0.9,
+          maxOutputTokens: 8192,  // Increased from 500 to 8192
+          responseMimeType: "application/json",
+          responseSchema: castAnalysisGeminiSchema,
+        },
       });
+
+      const result = await model.generateContent(prompt);
+      const response = result.response;
+      
       const analysisDuration = (Date.now() - analysisStartTime) / 1000;
       console.log(`  AI analysis took ${analysisDuration.toFixed(2)} seconds`);
       
       // Print diagnostic info
       console.log('  📊 AI Analysis Diagnostics:');
-      console.log(`    Model: ${response.model}`);
-      console.log(`    Prompt tokens: ${response.usage?.prompt_tokens || 'N/A'}`);
-      console.log(`    Completion tokens: ${response.usage?.completion_tokens || 'N/A'}`);
-      console.log(`    Total tokens: ${response.usage?.total_tokens || 'N/A'}`);
+      console.log(`    Model: ${AI_ANALYSIS_MODEL}`);
       
-      // Calculate costs using pricing table
-      if (response.usage) {
-        const modelPricing = MODEL_PRICING[response.model] || MODEL_PRICING[AI_ANALYSIS_MODEL];
-        const promptCost = (response.usage.prompt_tokens / 1000000) * modelPricing.input;
-        const completionCost = (response.usage.completion_tokens / 1000000) * modelPricing.output;
+      // Get token usage from Gemini
+      if (response.usageMetadata) {
+        const usage = response.usageMetadata;
+        const promptTokens = usage.promptTokenCount || 0;
+        const totalTokens = usage.totalTokenCount || 0;
+        const completionTokens = totalTokens - promptTokens;  // Calculate completion tokens
+        
+        console.log(`    Prompt tokens: ${promptTokens}`);
+        console.log(`    Completion tokens: ${completionTokens} (calculated)`);
+        console.log(`    Total tokens: ${totalTokens}`);
+        console.log(`    Cached tokens: ${usage.cachedContentTokenCount || 0}`);
+        
+        // Calculate costs using pricing table
+        const modelPricing = MODEL_PRICING[AI_ANALYSIS_MODEL];
+        
+        // Handle tiered pricing for gemini-2.5-pro
+        let inputRate, outputRate;
+        if (typeof modelPricing.input === 'function') {
+          inputRate = modelPricing.input(promptTokens);
+          outputRate = modelPricing.output(promptTokens);  // Output pricing also based on prompt size
+          console.log(`    Pricing tier: ${promptTokens <= 200000 ? '≤200k tokens' : '>200k tokens'}`);
+        } else {
+          inputRate = modelPricing.input;
+          outputRate = modelPricing.output;
+        }
+        
+        const promptCost = (promptTokens / 1000000) * inputRate;
+        const completionCost = (completionTokens / 1000000) * outputRate;
         const totalCost = promptCost + completionCost;
         console.log(`    Estimated cost: $${totalCost.toFixed(6)} (input: $${promptCost.toFixed(6)}, output: $${completionCost.toFixed(6)})`);
-        console.log(`    Pricing: $${modelPricing.input}/1M input tokens, $${modelPricing.output}/1M output tokens`);
+        console.log(`    Pricing: $${inputRate}/1M input tokens, $${outputRate}/1M output tokens`);
       }
       
-      console.log(`    Finish reason: ${response.choices[0].finish_reason}`);
-
-      return response.choices[0].message.parsed;
+      const responseText = response.text();
+      const parsedResponse = JSON.parse(responseText);
+      
+      return parsedResponse;
       
     } catch (error) {
       console.error(`  AI analysis error (attempt ${attempts}):`, error.message);
@@ -405,9 +467,9 @@ async function main() {
       throw new Error('No casts found for this user');
     }
     
-    // Step 3: Generate AI analysis
-    const analysis = await generateAIAnalysis(castsWithTimestamps, userData);
-    console.log(`✅ Generated AI analysis`);
+    // Step 3: Generate AI analysis with Gemini
+    const analysis = await generateAIAnalysisWithGemini(castsWithTimestamps, userData);
+    console.log(`✅ Generated AI analysis with Gemini`);
     await saveToFile(`fid-${TEST_FID}-analysis.json`, analysis);
     
     // Print fun facts
@@ -431,6 +493,16 @@ async function main() {
     const overallDuration = (Date.now() - overallStartTime) / 1000;
     console.log(`\n✨ Complete! All files saved to: ${OUTPUT_DIR}`);
     console.log(`⏱️  Total execution time: ${overallDuration.toFixed(2)} seconds`);
+    
+    // Print cost summary
+    console.log(`\n💰 Cost Summary:`);
+    console.log(`   Models used:`);
+    console.log(`     - AI Analysis: ${AI_ANALYSIS_MODEL} (Gemini)`);
+    console.log(`     - Image Generation: ${IMAGE_GEN_MODEL} (OpenAI)`);
+    console.log(`   Total API calls made: 2 (AI analysis + Image generation)`);
+    console.log(`   Note: Detailed token usage and costs are logged above for each API call`);
+    console.log(`\n   To test different models, update AI_ANALYSIS_MODEL and IMAGE_GEN_MODEL at the top of the script\n`);
+    
   } catch (error) {
     console.error('\n❌ Error:', error.message);
     if (error.stack) {
